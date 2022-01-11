@@ -1,0 +1,1084 @@
+SET SERVEROUTPUT ON SIZE 1000000;
+
+DROP TABLE Payments;
+DROP TABLE Trips;
+DROP TABLE Distances;
+DROP TABLE Vehicles;
+DROP TABLE Vehicle_Owners;
+DROP TABLE Vehicle_Types;
+DROP TABLE Customers;
+
+DROP SEQUENCE cust_id_seq;
+DROP SEQUENCE VEHICLES_SEQ;
+DROP sequence VEHICLE_OWNERS_SEQ;
+DROP SEQUENCE Distance_Seq;
+DROP SEQUENCE Trips_seq;
+DROP SEQUENCE payment_seq;
+
+CREATE TABLE Customers (
+Customer_ID int,
+Customer_name varchar(25),
+Customer_email_ID varchar(25),
+CreditCard Number,
+Primary Key (Customer_ID)
+);
+
+CREATE TABLE Vehicle_Types (
+Vehicle_type varchar(25), 
+Rate_per_mile int,
+Primary Key (Vehicle_type)
+);
+
+CREATE TABLE Vehicle_Owners (
+Owner_ID int,
+Name varchar(25),
+Email varchar(25),
+CreditCard number,
+active varchar(5),
+Primary Key (Owner_ID),
+CONSTRAINT UC1_VEH_OWNERS UNIQUE(Email)
+);
+
+CREATE TABLE Vehicles (
+Vehicle_ID int,
+Owner_ID int,
+Vehicle_type varchar(25),
+Make varchar(25),
+Year number,
+Tag_number varchar(25),
+State varchar(25),
+Seating_capacity number,
+Luggage_capacity number,
+latest_location varchar(50),
+active varchar(5),
+Primary Key (Vehicle_ID),
+constraint FK1_VEH FOREIGN KEY (Owner_ID) REFERENCES VEHICLE_OWNERS(Owner_ID),
+constraint FK2_VEH FOREIGN KEY (Vehicle_type) REFERENCES VEHICLE_TYPES(Vehicle_type)
+);
+
+CREATE TABLE Distances (
+Distance_ID int,
+Source_town varchar(25),
+Source_state varchar(25),
+Destination_town varchar(25),
+Destination_State varchar(25),
+Distance float,
+States_crossed int, 
+Primary Key (Distance_ID)
+);
+
+CREATE TABLE Trips (
+Trip_ID int,
+Customer_ID int,
+Owner_ID int,
+Distance_ID int,
+Source_town varchar(25),
+Source_state varchar(25),
+Destination_town varchar(25),
+Destination_State varchar(25),
+DateOfTrip date,
+Vehicle_tag varchar(25), 
+Num_of_passengers int, 
+Luggage_amount int, 
+PaymentAmount float, 
+Primary Key (Trip_ID),
+Foreign Key (Customer_ID) References Customers (Customer_ID),
+Foreign Key (Owner_ID) References Vehicle_Owners (Owner_ID),
+Foreign Key (Distance_ID) References Distances (Distance_ID)
+);
+
+CREATE TABLE Payments (
+Payment_ID int,
+PaymentSide varchar(25) CHECK (PaymentSide IN ('Customer', 'Owner')),
+Trip_ID int,
+Customer_ID int,
+Owner_ID int,
+PaymentAmount float, 
+Primary Key (Payment_ID),
+Foreign Key (Trip_ID) References Trips (Trip_ID),
+Foreign Key (Customer_ID) References Customers (Customer_ID),
+Foreign Key (Owner_ID) References Vehicle_Owners (Owner_ID)
+);
+
+
+CREATE SEQUENCE cust_id_seq START WITH 5 INCREMENT BY 1;
+CREATE SEQUENCE Distance_Seq START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE VEHICLE_OWNERS_SEQ START WITH 1000 INCREMENT BY 1 NOCACHE NOCYCLE;
+CREATE SEQUENCE VEHICLES_SEQ START WITH 2000 INCREMENT BY 1 NOCACHE NOCYCLE;
+CREATE SEQUENCE Trips_SEQ START WITH 5000 INCREMENT BY 1 NOCACHE NOCYCLE;
+CREATE SEQUENCE payment_seq START WITH 1 INCREMENT BY 1;
+
+
+-- start of procedure definitions
+
+
+/*
+-------------------------------------------------------------------start of member 1 procedures-------------------------------------------------------------------------------
+*/
+
+
+CREATE OR REPLACE PROCEDURE insertVehicleType(itype IN varchar, irate IN int,ErrorCode OUT int) IS
+BEGIN
+	ErrorCode := 1;	
+
+	dbms_output.put_line('Inserting new vehicle type ' || itype || ' with a rate of ' || irate || '.');
+	INSERT INTO vehicle_types VALUES (itype,irate);
+
+	EXCEPTION
+   		WHEN OTHERS THEN
+      		ErrorCode := 0;
+      		DBMS_OUTPUT.Put_line ('Encountered error:'||SQLCODE||' -ERROR- '||SQLERRM);
+END;
+
+/
+
+CREATE OR REPLACE PROCEDURE add_owner(p_owner_name vehicle_owners.name%type,p_owner_email vehicle_owners.email%type,p_owner_cc vehicle_owners.CreditCard%type,p_active varchar)
+IS
+begin
+insert into VEHICLE_OWNERS values(VEHICLE_OWNERS_SEQ.NEXTVAL,p_owner_name,p_owner_email,p_owner_cc,p_active);
+ 
+end;
+
+/
+
+CREATE OR REPLACE PROCEDURE get_owner_id(p_owner_email IN vehicle_owners.email%type, P_ID OUT int)
+IS
+begin
+select vehicle_owners.owner_id INTO P_ID from vehicle_owners where p_owner_email= email;
+dbms_output.put_line(p_id);
+return;
+end;
+
+/
+
+CREATE OR REPLACE PROCEDURE delete_vehicle(p_owner_email vehicle_owners.email%type)
+IS
+begin
+update vehicle_owners
+set active='N'
+where vehicle_owners.email=p_owner_email;
+DELETE FROM VEHICLES WHERE OWNER_ID = (SELECT OWNER_ID FROM VEHICLE_OWNERS WHERE EMAIL = p_owner_email);
+Exception
+        when no_data_found then
+        Dbms_output.put_line('no rows found');
+		when too_many_rows then
+        dbms_output.put_line('too many rows');
+WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE ('error');
+end;
+
+/
+
+CREATE OR REPLACE PROCEDURE insertVEHICLES(
+p_veh_owner_name IN vehicle_owners.name%TYPE,
+p_veh_type IN vehicles.vehicle_type%TYPE,
+p_make IN vehicles.make%TYPE,
+p_year IN vehicles.year%TYPE,
+p_tagnum IN vehicles.tag_number%TYPE,
+p_state IN vehicles.state%TYPE,
+p_seating_cap IN vehicles.seating_capacity%TYPE,
+p_luggage_cap IN vehicles.luggage_capacity%TYPE,
+p_latest_location IN vehicles.latest_location%TYPE,
+p_active varchar)
+IS
+p_veh_owner_id vehicle_owners.owner_id%type;
+BEGIN
+
+SELECT owner_id INTO p_veh_owner_id FROM vehicle_owners WHERE name=p_veh_owner_name;
+
+INSERT INTO VEHICLES 
+VALUES (vehicles_seq.nextval, p_veh_owner_id, p_veh_type, p_make,
+p_year,p_tagnum,p_state,p_seating_cap,p_luggage_cap,p_latest_location,p_active);
+
+COMMIT;
+END;
+
+/
+
+
+CREATE OR REPLACE PROCEDURE displayVehicles(p_veh_type IN Vehicles.vehicle_type%TYPE)
+IS
+z_ID vehicles.vehicle_id%type;
+z_Type vehicles.vehicle_type%type;
+z_Make vehicles.make%type;
+z_Year vehicles.year%type;
+z_TagNumber vehicles.tag_number%type;
+z_State vehicles.state%type;
+z_LuggageCapacity vehicles.luggage_capacity%type;
+z_SeatingCapacity vehicles.seating_capacity%type;
+z_LastLocation vehicles.latest_location%type;
+z_name varchar(25);
+CURSOR C IS
+SELECT V.vehicle_id,V.vehicle_type,V.make,V.year,V.tag_number,V.state,V.luggage_capacity,V.seating_capacity,V.latest_location,O.name
+FROM vehicles V, vehicle_owners O
+WHERE vehicle_type = p_veh_type AND V.owner_id=O.owner_id;
+BEGIN
+OPEN C;
+LOOP
+FETCH C INTO z_id,z_type,z_make,z_year,z_tagnumber,z_state,z_luggagecapacity,z_seatingcapacity,z_lastlocation,z_name;
+EXIT WHEN C%NOTFOUND;
+dbms_output.put_line('Vehicle ID: ' || z_id ||' Owner Name: ' || z_name ||' Vehicle Type: '||
+z_type || ' Vehicle Make: ' || z_make || ' Year: ' || z_year || ' Tag Number: ' || z_tagnumber
+|| ' State: ' || z_state || ' Seating Capactiy: ' || z_seatingcapacity || ' Luggage Capacity: ' 
+||z_luggagecapacity || ' Last Location: ' || z_lastlocation);
+END LOOP;
+END;
+
+/
+
+CREATE OR REPLACE PROCEDURE displayStates
+AS
+    p_state vehicles.state%TYPE;
+    p_count int;
+    CURSOR C IS
+    select state,count(*) from vehicles group by state;
+BEGIN
+    OPEN C;
+    LOOP
+    FETCH C INTO p_state,p_count;
+    EXIT WHEN C%NOTFOUND;
+    dbms_output.put_line(p_state ||':    '|| p_count);
+    END LOOP;
+END;
+
+/
+
+
+/*
+-------------------------------------------------------------------start of member 2 procedures-------------------------------------------------------------------------------
+*/
+
+
+--A function to add a customer and return 1 if the insertion is successful
+CREATE OR REPLACE FUNCTION AddACustomer(
+Name in CUSTOMERS.Customer_name%TYPE,                                                        -- input variable Name
+email in CUSTOMERS.Customer_email_ID%TYPE,                                                   -- Input variable email
+Customer_CreditCard in CUSTOMERS.CreditCard%TYPE)                                            -- Input variable Customer_CreditCard  
+RETURN Number                                                                                -- Return a number if the insertion is successful
+IS  
+BEGIN  
+INSERT INTO CUSTOMERS(Customer_ID, Customer_name, Customer_email_ID, CreditCard)             -- Inserting these values into the table
+VALUES (cust_id_seq.nextval, Name, email, Customer_CreditCard);  
+COMMIT; 
+Return 1;                                                                                    -- Return 1 after insertion
+
+EXCEPTION
+   WHEN OTHERS THEN
+	  DBMS_OUTPUT.Put_line('Error adding desired customer.');
+      DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+END;                                                                                  
+  
+/
+
+-- A function to delete the customer entry based on email id
+CREATE OR REPLACE FUNCTION DeleteACustomer(email in varchar)                                -- input variable email
+RETURN Number
+IS 
+BEGIN 
+DELETE 
+FROM CUSTOMERS 
+WHERE Customer_email_ID = email; 
+RETURN 1; 
+	  
+EXCEPTION
+when no_data_found then                                                                     -- Exception handler when no such customer with the email id
+dbms_output.put_line('no such customer');
+WHEN OTHERS THEN
+DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+END;
+
+/
+CREATE OR REPLACE FUNCTION FindCustomerID(email in varchar)                                 -- Function to accept email id and return customer ID
+RETURN Number 
+IS 
+cust_id int;
+BEGIN 
+SELECT Customer_ID into cust_id from CUSTOMERS where Customer_email_ID = email;
+RETURN cust_id; 
+	  
+EXCEPTION                                                                                   -- Exception handler when no such customer with the email id
+when no_data_found then
+dbms_output.put_line('no such customer');
+WHEN OTHERS THEN
+DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+END;
+/
+
+--Function definition to update creditcard of the customer
+CREATE OR REPLACE FUNCTION UpdateCreditCard(
+Custname in CUSTOMERS.Customer_name%TYPE,                                                            
+Customer_CreditCard in CUSTOMERS.CreditCard%TYPE
+)                                            
+RETURN Number                                                                                
+IS
+BEGIN  
+UPDATE CUSTOMERS
+SET CreditCard = Customer_CreditCard
+where Customer_name = Custname;
+Return 1; 
+Exception
+	WHEN OTHERS THEN
+	DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);                                                                                   
+END;
+
+/
+--Procedure definition of the bottom 3 customers who spent the least amount of money with RapidRide
+CREATE OR REPLACE PROCEDURE WorstCustomer(ErrorCode OUT int)                                            
+IS  
+cursor c1 is select * from (select SUM(P.PaymentAmount),C.customer_ID,C.customer_name
+FROM CUSTOMERS C, Payments P
+where P.customer_ID = C.customer_ID and P.PaymentSide = 'Owner'                 --rownum<=3 fetches the first 3 results, payment side is shown as owner to return the positive value
+GROUP BY C.customer_ID, C.customer_name                                         -- Grouping by customer_id because the same customer can take ride from RapidRide several times
+ORDER BY SUM(PaymentAmount) asc)
+WHERE ROWNUM<=3;                                                -- sorting them in ascending order because we need to fetch the 3 customers who spent the least
+cust_id int;
+cust_name varchar(25);
+Amount float;
+BEGIN  
+ErrorCode := 1;
+
+	OPEN c1;
+    DBMS_output.put_line('WORST CUSTOMERS : The customers who spent the least amount of money with RapidRide are :');
+	LOOP
+		FETCH c1 into Amount,cust_id,cust_name;
+		EXIT WHEN c1%NOTFOUND;
+		DBMS_output.put_line('Customer ID: ' || ' ' || cust_id || ' Customer Name: ' || cust_name || ' with' || ' Payment Amount: ' || Amount);
+	END LOOP;
+	CLOSE c1;
+
+	EXCEPTION 
+		WHEN others THEN
+		DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+		ErrorCode := 0;
+END;
+
+/
+
+--Procedure definition of the top 3 customers who spent the most amount of money with RapidRide
+CREATE OR REPLACE PROCEDURE BestCustomer(ErrorCode OUT int)                                            
+IS  
+cursor c1 is select * from (select SUM(P.PaymentAmount),C.customer_ID,C.customer_name
+FROM CUSTOMERS C, Payments P
+where P.customer_ID = C.customer_ID and P.PaymentSide = 'Owner'                     --rownum<=3 fetches the first 3 results, payment side is shown as owner to return the positive value
+GROUP BY C.customer_ID, C.customer_name                                             -- Grouping by customer_id and customer_name because the same customer can take ride from RapidRide several times
+ORDER BY SUM(PaymentAmount) desc)
+WHERE ROWNUM<=3;                                                   -- sorting them in descending order because we need to fetch the 3 customers who spent the most
+cust_id int;
+cust_name varchar(25);
+Amount float;
+BEGIN  
+ErrorCode := 1;
+
+	OPEN c1;
+    DBMS_output.put_line('BEST CUSTOMERS : The customers who spent the most amount of money with RapidRide are : ');
+	LOOP
+		FETCH c1 into Amount,cust_id,cust_name;
+		EXIT WHEN c1%NOTFOUND;
+		DBMS_output.put_line('Customer ID: ' || ' ' || cust_id || ' Customer Name: ' || cust_name || ' with' || ' Payment Amount: ' || Amount);
+	END LOOP;
+	CLOSE c1;
+
+	EXCEPTION 
+		WHEN others THEN
+		DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+		ErrorCode := 0;
+END;
+
+/
+
+Create or replace PROCEDURE ShowAllCustomers(ErrorCode OUT int)
+IS
+Cursor C1 is select Customer_ID, Customer_Name, Customer_email_id, creditcard  from customers;
+rec Customers%rowtype;
+BEGIN
+ErrorCode := 1;
+Open C1;
+Loop
+	fetch C1 into rec;
+	exit when C1%NOTFOUND;
+	dbms_output.put_line('Customer ID : ' || rec.Customer_ID ||' ' || 'Name : ' || rec.Customer_Name || ' ' || 'Email ID : ' || rec.Customer_email_id || ' ' || 'Creditcard : ' || rec.creditcard );
+End loop;
+close C1;
+
+EXCEPTION 
+WHEN others THEN
+DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+ErrorCode := 0;
+END;
+/
+
+/*
+-------------------------------------------------------------------start of member 3 procedures-------------------------------------------------------------------------------
+*/
+
+
+CREATE OR REPLACE PROCEDURE AddNewDistance(
+    Source_Town IN VARCHAR,
+    Source_State IN VARCHAR,
+    Destination_Town IN VARCHAR,
+    Destination_State IN VARCHAR,
+    Distance IN FLOAT,
+    States_crossed IN INT)
+IS
+BEGIN
+    INSERT INTO Distances VALUES(
+        Distance_Seq.NEXTVAL, Source_Town, Source_State, Destination_Town, Destination_State, Distance, States_Crossed     
+    );
+    DBMS_output.put_line('Inserted a new record from ' || Source_Town || ' to ' || Destination_Town || ' into Distances table'); 
+EXCEPTION
+   WHEN OTHERS THEN
+      DBMS_OUTPUT.Put_line ('Encountered error:'||SQLCODE||' -ERROR- '||SQLERRM);
+END;
+
+/
+
+CREATE OR REPLACE PROCEDURE ListOneLegDestinations(
+    Starting_Point IN VARCHAR,
+    ErrorCode OUT INT
+)
+AS
+    Record_Found BOOLEAN := FALSE;
+    CURSOR c_destinations IS SELECT Destination_Town, Distance FROM Distances 
+    WHERE lower(Source_Town) = lower(Starting_Point);
+BEGIN
+    ErrorCode := 1;
+    DBMS_output.put_line('List of Destinations from ' || Starting_point || ': ');
+    FOR r_dist in c_destinations LOOP
+        Record_Found := TRUE;
+        DBMS_output.put_line(r_dist.Destination_Town || ' - ' || r_dist.Distance || ' Miles');
+    END LOOP;
+    IF Record_Found = False THEN
+        DBMS_output.put_line('No destinations found from ' || Starting_Point);
+    END IF;
+
+EXCEPTION
+   WHEN OTHERS THEN
+      ErrorCode := 0;
+      DBMS_OUTPUT.Put_line ('Encountered error:'||SQLCODE||' -ERROR- '||SQLERRM);
+END;
+
+/
+
+CREATE OR REPLACE PROCEDURE ListAvailableRides(
+    Starting_Point IN VARCHAR,
+    Ending_Point IN VARCHAR,
+    Seats_Required IN INT,
+    Luggage_quantity IN INT,
+    ErrorCode OUT INT
+)
+AS
+Record_Found BOOLEAN := FALSE;
+CURSOR c1 IS SELECT  DISTINCT Vehicles.Vehicle_type, Vehicles.Seating_capacity, Vehicles.Luggage_capacity, Vehicles.tag_number from Vehicles, Distances
+WHERE lower(Vehicles.latest_location) = lower(Starting_Point) 
+AND Vehicles.Seating_capacity >= Seats_Required 
+AND Vehicles.Luggage_capacity >= Luggage_quantity 
+AND Vehicles.active='Yes'
+AND lower(Vehicles.latest_location) = lower(Distances.Source_Town);
+BEGIN
+    ErrorCode := 1;
+    DBMS_output.put_line('Input Data -  Starting Point :' || Starting_Point||' , Ending Point: '|| Ending_Point ||' , Seats Required:'||Seats_Required||' , Luggage Quantity:'||Luggage_quantity);
+    DBMS_output.put_line('List of Available Rides : ');
+    FOR r_vehicles IN c1 LOOP
+        record_found := TRUE;
+        DBMS_output.put_line('Vehicle Type: '|| r_vehicles.Vehicle_type ||',  Vehicle Tag: '|| r_vehicles.tag_number ||',  Seating Capacity: '|| r_vehicles.Seating_capacity||',  Luggage Capacity: '|| r_vehicles.Luggage_capacity);
+    END LOOP;
+    IF record_found = FALSE THEN
+          DBMS_output.put_line('No rides available as per requirement');
+    END IF;
+	DBMS_OUTPUT.PUT_LINE(u'\000A');
+EXCEPTION
+   WHEN OTHERS THEN
+      ErrorCode := 0;
+      DBMS_OUTPUT.Put_line ('Encountered error:'||SQLCODE||' -ERROR- '||SQLERRM);
+END;
+
+/
+
+
+/*
+-------------------------------------------------------------------start of member 4 procedures-------------------------------------------------------------------------------
+*/
+
+
+CREATE OR REPLACE PROCEDURE RECORDTRIP (
+    t_Customer_name customers.Customer_name%type,
+    t_Owner_name vehicle_owners.name%type,
+    t_Source_town distances.source_town%type,
+    t_Source_state distances.source_state%type,
+    t_Destination_Town distances.destination_town%type,
+    t_Destination_State distances.destination_state%type,
+    t_dateoftrip trips.dateoftrip%type,
+    t_vehicle_tag vehicles.tag_number%type,
+    t_num_of_passengers trips.num_of_passengers%type,
+    t_luggage_amount trips.luggage_amount%type,
+    t_Paymentamount trips.paymentamount%type)
+IS
+BEGIN
+    INSERT INTO Trips VALUES(
+        Trips_Seq.NEXTVAL,(select Customer_id from customers where Customer_name=t_Customer_name),
+        (select Owner_id from vehicle_owners where name=t_Owner_name),
+        (select distance_id from distances where Source_Town=t_Source_Town and Source_State=t_Source_State and 
+        Destination_Town=t_Destination_Town and Destination_State=t_Destination_State ),
+        t_Source_Town, t_Source_State, 
+        t_Destination_Town, t_Destination_State, t_DateofTrip,
+		(select tag_number from vehicles where tag_number=t_vehicle_tag),
+		t_num_of_passengers, 
+		t_luggage_amount,
+        t_PaymentAmount  
+    );
+    EXCEPTION
+	when OTHERS then
+	dbms_output.put_line('data cant be inserted as mismatch of data occured');          
+END;
+
+/
+
+Create or replace function return_trip_id (
+    t_Customer_name IN customers.Customer_name%type,
+    t_Owner_name IN vehicle_owners.name%type,
+    t_Source_town IN distances.source_town%type,
+    t_Source_state IN distances.source_state%type,
+    t_Destination_Town IN distances.destination_town%type,
+    t_Destination_State IN distances.destination_state%type,
+    t_dateoftrip IN trips.dateoftrip%type)
+RETURN int
+IS
+t_id trips.trip_id%type;
+BEGIN
+select trip_id into t_id from trips where customer_id=(select customer_id from customers where customer_name=t_customer_name) and owner_id=(select Owner_id from vehicle_owners where name=t_Owner_name) and 
+Source_town=t_Source_town and Source_state=t_Source_state and Destination_Town=t_Destination_Town and Destination_State=t_Destination_State and
+dateoftrip=t_dateoftrip;
+
+return(t_id);
+
+EXCEPTION
+
+when no_data_found then
+dbms_output.put_line('no such trip found');
+when OTHERS then
+dbms_output.put_line('data cant be inserted as mismatch of data occured');
+
+end;
+
+/
+
+
+/*
+-------------------------------------------------------------------start of member 5 procedures-------------------------------------------------------------------------------
+*/
+
+-- Caclculate the payments for a specific trip. This includes a 15% tip.
+CREATE OR REPLACE PROCEDURE CalculatePayment(Distance IN float, Num_of_passengers IN int,
+Luggage IN int, Car_value IN int, Tolls IN int, Total OUT float) IS
+Tip_Amount decimal(19,4);
+BEGIN
+	-- equation to find the actual payment amount
+	Tip_Amount := .15 * ((distance*Car_value*Num_of_passengers) + (5*Luggage) + (20*Tolls));
+	Total := (distance*Car_value*Num_of_passengers) + (5*Luggage) + (20*Tolls) + Tip_Amount;
+	
+	Exception
+		WHEN others THEN
+		DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+END;
+
+/
+
+/*
+Charge the customer after the trip. Adds 2 records to the payments table, one for the owner and customer (negative value).
+Updates the trips table to record the calculate payment. Functions by making a call to CalculatePayment().
+*/
+CREATE OR REPLACE PROCEDURE ChargeCustomer(t_TripID IN int, ErrorCode OUT int) IS
+	Amount int;
+	CustPayment int;
+	t_CustomerID int;
+	t_CustomerName varchar(25);
+	t_OwnerID int;
+	t_OwnerName varchar(25);
+	d_Distance float;
+	d_Num_of_passengers int;
+	d_Luggage int;
+	d_Car_value int;
+	Tolls int;
+BEGIN
+	ErrorCode := 1;
+	
+	-- implicit cursor to get values that will be input parameters for CalculatePayment()
+	SELECT T.Customer_ID,C.Customer_Name,T.Owner_ID,O.Name,Distance,Num_of_passengers,Luggage_amount,Rate_per_mile,States_crossed
+	INTO t_CustomerID,t_CustomerName,t_OwnerID,t_OwnerName,d_Distance,d_Num_of_passengers,d_Luggage,d_Car_value,Tolls
+	FROM Trips T, Customers C, Vehicle_Owners O, Distances D, Vehicles V, Vehicle_Types Z
+	WHERE T.Trip_ID=t_TripID  
+	      AND T.Customer_ID=C.Customer_ID 
+              AND T.Owner_ID=O.Owner_ID 
+              AND T.Distance_ID=D.Distance_ID 
+              AND T.Vehicle_tag=V.Tag_number 
+              AND V.Vehicle_type=Z.Vehicle_type;
+	
+	-- calculate the payment for the owner and make the value for the customer negative
+	CalculatePayment(d_Distance,d_Num_of_passengers,d_Luggage,d_Car_value,Tolls,Amount);
+	CustPayment := Amount * -1;
+	
+	dbms_output.put_line('Charging customer: ' || t_CustomerName || ' for $' || Amount || '.');
+	dbms_output.put_line('Payment made to owner: ' || t_OwnerName || ' for $' || Amount || '.');
+	dbms_output.put_line(u'\000A');
+	
+	-- insert a payment record for the owner and the customer
+	INSERT INTO Payments(Payment_ID,PaymentSide,Trip_ID,Customer_ID,Owner_ID,PaymentAmount)
+	VALUES (payment_seq.nextval,'Owner',t_TripID,t_CustomerID,t_OwnerID,Amount);
+	INSERT INTO Payments(Payment_ID,PaymentSide,Trip_ID,Customer_ID,Owner_ID,PaymentAmount)
+	VALUES (payment_seq.nextval,'Customer',t_TripID,t_CustomerID,t_OwnerID,CustPayment);
+	
+	-- set newly calculated payment amount in the trips tabl
+	dbms_output.put_line('Updating payment amount in the trips table...');
+	UPDATE Trips SET PaymentAmount=Amount WHERE Trip_ID=t_TripID;
+	
+	-- any expection should flip the error code to 0
+	EXCEPTION
+		WHEN no_data_found THEN
+		dbms_output.put_line('Provided trip id does not exist.');
+		ErrorCode := 0;
+		WHEN too_many_rows THEN
+		dbms_output.put_line('Duplicate records present for this trip id');
+		ErrorCode := 0;
+		WHEN others THEN
+		DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+		ErrorCode := 0;
+END;
+
+/
+
+-- uses the payment values entered in the payments table to find the total amount of revenue that RapidRide has earned froms is trips
+CREATE OR REPLACE PROCEDURE FindTotalRevenue(TotalRevenue OUT float) IS
+	CURSOR c1 IS SELECT PaymentAmount FROM Payments WHERE PaymentSide='Owner';
+	d_PaymentAmount float;
+BEGIN
+	TotalRevenue := 0;
+	
+	-- fetch each payment value with an explicit cursor and add it to the total
+	OPEN c1;
+	LOOP
+		FETCH c1 INTO d_PaymentAmount;
+		EXIT WHEN c1%NOTFOUND;
+		TotalRevenue := TotalRevenue + d_PaymentAmount;
+	END LOOP;
+	CLOSE c1;
+	
+	-- print the total revenue
+	DBMS_output.put_line('Total Revenue: ' || TotalRevenue);
+	
+	-- catch any exceptions and print the error message 
+	Exception
+		WHEN others THEN
+		DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+END;
+
+/
+
+-- Print out each destination along with the amount of revenue earned from trips to that destination.
+CREATE OR REPLACE PROCEDURE GenerateRevenueReportDest(ErrorCode OUT int) IS
+	CURSOR c1 IS SELECT SUM(T.PaymentAmount), T.Destination_town FROM Payments P, Trips T 
+	WHERE P.Trip_ID=T.Trip_ID GROUP BY T.Destination_Town;
+	Total float;
+	Town varchar(25);
+BEGIN
+	ErrorCode := 1;
+
+    -- explicit cursor to fetch each the sum revenues in groups that are sorted by destination town
+	OPEN c1;
+	LOOP
+		FETCH c1 into Total,Town;
+		EXIT WHEN c1%NOTFOUND;
+		DBMS_output.put_line(Total || ' has been earned from trips to ' || Town);
+	END LOOP;
+	CLOSE c1;
+
+    -- any exceptions should trigger the functions error code
+	Exception
+		WHEN others THEN
+		DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+		ErrorCode := 1;
+END;
+
+/
+-- Print out each departure location along with the amount of revenue earned from trips from that location.
+CREATE OR REPLACE PROCEDURE GenerateRevenueReportDept(ErrorCode OUT int) IS
+	CURSOR c1 IS SELECT SUM(T.PaymentAmount), T.Source_town FROM Payments P, Trips T
+	WHERE P.Trip_ID=T.Trip_ID AND PaymentSide='Owner'
+	GROUP BY T.Source_town;
+	Total float;
+	Town varchar(25);
+BEGIN
+	ErrorCode := 1;
+
+	-- print a list of source towns and the total amount of money earned from them as found in the cursor query
+	OPEN c1;
+	LOOP
+		FETCH c1 into Total,Town;
+		EXIT WHEN c1%NOTFOUND;
+		DBMS_output.put_line('$' || Total || ' has been earned from trips from ' || Town);
+	END LOOP;
+	CLOSE c1;
+
+	-- return an error code to indicate any exceptions
+	EXCEPTION
+		WHEN others THEN
+		DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+		ErrorCode := 0;
+END;
+
+/
+-- view all the payments made by a specific customer
+CREATE OR REPLACE PROCEDURE ViewCustomerPayments(CustomerEmail IN varchar, ErrorCode OUT int) IS
+	CURSOR c1 is SELECT C.Customer_name, P.Trip_ID, P.PaymentAmount FROM Payments P, Customers C
+	WHERE P.PaymentSide='Customer' AND C.Customer_email_ID=CustomerEmail AND P.Customer_ID=C.Customer_ID;
+	eCustomer_name varchar(25);
+	eTrip_ID int;
+	ePaymentAmount float;
+BEGIN
+	ErrorCode := 1;
+	-- print out a list of payments made by a specific customer as retrieved by the cursor query
+	OPEN c1;
+	LOOP
+		FETCH c1 into eCustomer_name, eTrip_ID, ePaymentAmount;
+		EXIT WHEN c1%NOTFOUND;
+		DBMS_output.put_line('Customer: ' || eCustomer_name || ' Trip ID: ' || eTrip_ID || ' Payment Amount: ' || '$' || ePaymentAmount);
+	END LOOP;
+	CLOSE c1;
+	-- return an error code to indicate any exceptions
+	EXCEPTION
+		WHEN others THEN
+		DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+		ErrorCode := 0;
+END;
+
+/
+
+-- view all the payments made to a specific owner
+CREATE OR REPLACE PROCEDURE ViewOwnerPayments(OwnerEmail IN varchar, ErrorCode OUT int) IS
+	CURSOR c1 is SELECT V.Name, P.Trip_ID, P.PaymentAmount FROM Payments P, Vehicle_Owners V
+	WHERE P.PaymentSide='Owner' AND V.email=OwnerEmail AND V.Owner_ID=P.Owner_ID;
+	eOwner_name varchar(25);
+	eTrip_ID int;
+	ePaymentAmount float;
+BEGIN
+	ErrorCode := 1;
+	-- print out a list of payments made to a specific owner as retrieved by the cursor query
+	OPEN c1;
+	LOOP
+ 		FETCH c1 into eOwner_name, eTrip_ID, ePaymentAmount;
+ 		EXIT WHEN c1%NOTFOUND;
+ 		DBMS_output.put_line('Owner: ' || eOwner_name || ' Trip ID: ' || eTrip_ID || ' Payment Amount: ' || '$' || ePaymentAmount);
+ 	END LOOP;
+ 	CLOSE c1;
+ 	-- return an error code to indicate any exceptions
+ 	EXCEPTION
+ 		WHEN others THEN
+		DBMS_OUTPUT.Put_line ('An error was encountered  - '||SQLCODE||' -ERROR- '||SQLERRM);
+		ErrorCode := 0;
+END;
+
+/
+
+
+/*
+----------------------------------------------------------Member 1 Scenario Deeksha--------------------------------------------------------------
+*/
+
+
+DECLARE
+truckErrorCode int;
+sedanErrorCode int;
+suvErrorCode int;
+crossErrorCode int;
+miniErrorCode int;
+busErrorCode int;
+BEGIN
+	insertVehicleType('TRUCK',1,truckErrorCode);
+	insertVehicleType('SEDAN',2,sedanErrorCode);
+	insertVehicleType('SUV',2,suvErrorCode);
+	insertVehicleType('CROSSOVER',2,crossErrorCode);
+	insertVehicleType('MINIVAN',2,miniErrorCode);
+	insertVehicleType('BUS',5,busErrorCode);
+END;
+/
+BEGIN
+dbms_output.put_line('Member 1 adding users Joe, Kathy, and Pat.');
+add_owner('Joe', 'joe@umbc.edu',123456,'y');
+add_owner('Kathy', 'kathy@abc.com',234567,'y');
+add_owner('Pat', 'pat@yahoo.com',123234,'y');
+END;
+/
+select * from vehicle_owners;
+
+BEGIN
+	dbms_output.put_line('Member 1 inserting vehicles for Joe, Kathy, and Pat.');
+	insertvehicles('Joe','SUV', 'Honda', 2018,'ABC12M3', 'MD', 7, 5,'Baltimore','Yes' );
+    insertvehicles('Kathy','MINIVAN', 'Chrysler', 2019,'AAA123', 'MD', 7, 7,'Baltimore','Yes' );
+    insertvehicles('Kathy','BUS', 'GMC', 2010,'AAA555', 'MD', 55, 100,'Baltimore','Yes' );
+    insertvehicles('Pat','SEDAN', 'Ford', 2015,'ZZZ12M3', 'VA', 5, 5,'Baltimore','Yes' );
+END;
+/
+select * from VEHICLES;
+
+BEGIN
+dbms_output.put_line('Report for Member 1' || ':' || ' Deeksha Aileni');
+displayVehicles('SEDAN');
+END;
+/
+BEGIN
+dbms_output.put_line('Member 1 displaying the number of vehicles registered in each state.');
+displaystates();
+END;
+/
+
+
+/*
+----------------------------------------------------------Member 2 Scenario Josna--------------------------------------------------------------
+*/
+
+
+DECLARE
+    return_ID number;                                                                           -- local variable to store the value of the returned customer ID
+    return_status_delete number;                                                                -- local variable to store the status of DeleteACustomer function
+    return_status_add number;                                                                   -- local variable to store the status of AddACustomer function
+	ErrorCode int;
+	return_status_update int;
+BEGIN
+
+    dbms_output.put_line('Below are scenario tasks for Member 2: Josna Chandramohan');
+    dbms_output.put_line(u'\000A');
+    dbms_output.put_line('1. Add customer Messi, messi@psg.com, cc number 777222');
+    return_status_add := AddACustomer('Messi','messi@psg.com',777222);                -- Calling AddACustomer function with input values
+    if return_status_add > 0 then	                                                            -- To check if the insertion was successful
+    dbms_output.put_line('A new customer record has been added');
+    end if;
+    
+    dbms_output.put_line(u'\000A');
+    dbms_output.put_line('2. Add customer Ronaldo, ronaldo@manu.com , cc number 777111');
+    return_status_add := AddACustomer('Ronaldo','ronaldo@manu.com',777111);                -- Calling AddACustomer function with input values
+    if return_status_add > 0 then	                                                            -- To check if the insertion was successful
+    dbms_output.put_line('A new customer record has been added');
+    end if;
+    
+    dbms_output.put_line(u'\000A');
+    dbms_output.put_line('3. Add customer Mia Ham, hamm@usa.com, cc number 777333');
+    return_status_add := AddACustomer('Mia Ham','hamm@usa.com',777333);                -- Calling AddACustomer function with input values
+    if return_status_add > 0 then	                                                            -- To check if the insertion was successful
+    dbms_output.put_line('A new customer record has been added');
+    end if;
+    
+    dbms_output.put_line(u'\000A');
+    dbms_output.put_line('4. Add customer Rapinoe, rapinoe@usa.com, cc number 777444');
+    return_status_add := AddACustomer('Rapinoe','rapinoe@usa.com',777444);                -- Calling AddACustomer function with input values
+    if return_status_add > 0 then	                                                            -- To check if the insertion was successful
+    dbms_output.put_line('A new customer record has been added');
+    end if;
+
+    dbms_output.put_line(u'\000A');
+    dbms_output.put_line('Return the customer ID of hamm@usa.com');
+    return_ID := FindCustomerID('hamm@usa.com');                                              -- Calling FindCustomerID function with an input value
+    if return_ID > 0 then                                                                       -- To check if the Find operation was successful
+	dbms_output.put_line('The customer ID is :' || return_ID);
+    else
+    dbms_output.put_line('no such Customer');
+    end if;
+    
+    dbms_output.put_line(u'\000A');
+    dbms_output.put_line('Return the customer ID of messi@psg.com');
+    return_ID := FindCustomerID('messi@psg.com');                                              -- Calling FindCustomerID function with an input value
+    if return_ID > 0 then                                                                       -- To check if the Find operation was successful
+	dbms_output.put_line('The customer ID is :' || return_ID);
+    else
+    dbms_output.put_line('no such Customer');
+    end if;
+    
+    dbms_output.put_line(u'\000A');
+    dbms_output.put_line('Update credit card of customer Ronaldo:');
+	return_status_update := UpdateCreditCard('Ronaldo',777777);                
+	if return_status_update > 0 then	                                                            
+	dbms_output.put_line('The creditcard number has been updated');
+	else
+	dbms_output.put_line('no such Customer');
+	end if;
+    
+    dbms_output.put_line(u'\000A');
+    dbms_output.put_line('Show all customers');
+    ShowAllCustomers(ErrorCode);
+    IF ErrorCode<1 THEN
+		dbms_output.put_line('error in displaying records');
+	END IF;
+	
+END;
+/
+
+/*
+----------------------------------------------------------Member 3 Scenario Keerithi--------------------------------------------------------------
+*/
+
+
+DECLARE
+    ErrorCode int;
+BEGIN
+    dbms_output.put_line('Member 3 inserting new distances:');
+    AddNewDistance('Baltimore', 'MD', 'College Park', 'MD', 28, 0);
+    AddNewDistance('College Park', 'MD', 'Baltimore', 'MD', 28, 0);
+    AddNewDistance('Alexandria', 'VA', 'College Park', 'MD', 14, 1);
+    AddNewDistance('College Park', 'MD', 'Alexandria', 'VA', 14, 1);
+    AddNewDistance('Baltimore', 'MD', 'New York', 'NY', 170 , 1);
+    AddNewDistance('New York', 'NY', 'Baltimore', 'MD', 170, 1);
+    AddNewDistance('Baltimore','MD','Philadelphia','PA', 90, 1);
+    AddNewDistance('Philadelphia','PA','Baltimore','MD', 90, 1);
+    AddNewDistance('Olney','MD','Arbutus','MD', 21, 0);
+    AddNewDistance('Arbutus','MD','Olney','MD', 21, 0);
+    AddNewDistance('College Park','MD','Olney','MD', 14, 0);
+    AddNewDistance('Olney','MD','College Park','MD', 14, 0);
+    AddNewDistance('Olney', 'MD','Ellicott City','MD', 16, 0);
+    AddNewDistance('Ellicott City', 'MD','Olney','MD', 16, 0);
+    AddNewDistance('Ellicott City', 'MD','Baltimore','MD', 12, 0);
+    AddNewDistance('Baltimore', 'MD','Ellicott City','MD', 12, 0);
+    AddNewDistance('Baltimore', 'MD','Towson', 'MD', 8, 0);
+    AddNewDistance('Towson', 'MD','Baltimore', 'MD', 8, 0);
+    AddNewDistance('Towson', 'MD','College Park', 'MD', 34, 0);
+    AddNewDistance('College Park', 'MD','Towson', 'MD', 34, 0);
+    
+	dbms_output.put_line(u'\000A');
+	dbms_output.put_line('Member 3 listing available rides:');
+    ListAvailableRides('Baltimore', 'Philadelphia', 2, 3, ErrorCode);
+    ListAvailableRides('Baltimore', 'New York', 25, 50, ErrorCode);
+    ListAvailableRides('Baltimore' , 'College Park', 1, 0, ErrorCode);
+    ListAvailableRides('College Park', 'Olney', 1, 0, ErrorCode);
+    
+    DBMS_output.put_line('Report For Member 3: Keerthi Reddy Avuthu');
+    ListOneLegDestinations('Baltimore', ErrorCode);
+END;
+/
+
+/*
+----------------------------------------------------------Member 4 Scenario Venkat--------------------------------------------------------------
+*/
+
+
+BEGIN
+Recordtrip('Ronaldo', 'Pat', 'Alexandria', 'VA', 'College Park','MD', DATE '2021-11-20', 'ZZZ12M3', 1, 1, 0);
+Recordtrip('Ronaldo', 'Joe', 'College Park', 'MD', 'Olney','MD', DATE '2021-11-20', 'ABC12M3', 1, 2, 0);
+Recordtrip('Ronaldo', 'Pat', 'Olney', 'MD', 'Ellicott City','MD', DATE '2021-11-20', 'ZZZ12M3', 1, 0, 0);
+Recordtrip('Ronaldo', 'Joe', 'Ellicott City', 'MD', 'Baltimore','MD', DATE '2021-11-20', 'ABC12M3', 1, 1, 0);
+Recordtrip('Ronaldo', 'Pat', 'Baltimore', 'MD', 'New York','NY', DATE '2021-11-20', 'ZZZ12M3', 1, 1, 0);
+Recordtrip('Mia Ham', 'Joe', 'Baltimore', 'MD', 'Philadelphia','PA', DATE '2021-12-01','ABC12M3', 2, 3, 0);
+Recordtrip('Messi', 'Kathy', 'Baltimore', 'MD', 'New York','NY', DATE '2021-05-31', 'AAA555', 25,50, 0);
+Recordtrip('Ronaldo', 'Kathy', 'New York', 'NY', 'Baltimore','MD', DATE '2021-11-20','AAA555' , 30, 80, 0);
+Recordtrip('Rapinoe', 'Pat', 'Baltimore', 'MD', 'College Park','MD', DATE '2021-12-02', 'ZZZ12M3', 1, 0, 0);
+Recordtrip('Rapinoe', 'Pat', 'College Park', 'MD', 'Olney','MD', DATE '2020-12-02', 'ZZZ12M3', 1, 1, 0);
+Recordtrip('Rapinoe', 'Pat', 'Olney', 'MD', 'Arbutus','MD', DATE '2021-12-02', 'ZZZ12M3', 1, 1, 0);
+Recordtrip('Ronaldo', 'Joe', 'Alexandria', 'VA', 'College Park','MD', DATE '2021-12-03', 'ABC12M3', 1, 1, 0);
+Recordtrip('Ronaldo', 'Pat', 'College Park', 'MD', 'Baltimore','MD', DATE '2021-12-03','ZZZ12M3' , 1, 0, 0);
+Recordtrip('Ronaldo', 'Joe', 'Baltimore', 'MD', 'New York','NY', DATE '2021-12-04', 'ABC12M3', 1, 1, 0);  
+
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Ronaldo', 'Pat', 'Alexandria', 'VA', 'College Park','MD', DATE '2021-11-20'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Ronaldo', 'Joe', 'College Park', 'MD', 'Olney','MD', DATE '2021-11-20'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Ronaldo', 'Pat', 'Olney', 'MD', 'Ellicott City','MD', DATE '2021-11-20'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Ronaldo', 'Joe', 'Ellicott City', 'MD', 'Baltimore','MD', DATE '2021-11-20'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Ronaldo', 'Pat', 'Baltimore', 'MD', 'New York','NY', DATE '2021-11-20'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Mia Ham', 'Joe', 'Baltimore', 'MD', 'Philadelphia','PA', DATE '2021-12-01'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Messi', 'Kathy', 'Baltimore', 'MD', 'New York','NY', DATE '2021-05-31'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Ronaldo', 'Kathy', 'New York', 'NY', 'Baltimore','MD', DATE '2021-11-20'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Rapinoe', 'Pat', 'Baltimore', 'MD', 'College Park','MD', DATE '2021-12-02'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Rapinoe', 'Pat', 'College Park', 'MD', 'Olney','MD', DATE '2020-12-02'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Rapinoe', 'Pat', 'Olney', 'MD', 'Arbutus','MD', DATE '2021-12-02'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Ronaldo', 'Joe', 'Alexandria', 'VA', 'College Park','MD', DATE '2021-12-03'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Ronaldo', 'Pat', 'College Park', 'MD', 'Baltimore','MD', DATE '2021-12-03'));
+dbms_output.put_line('TRIP_ID is: ' || return_trip_id('Ronaldo', 'Joe', 'Baltimore', 'MD', 'New York','NY', DATE '2021-12-04')); 
+END;
+/
+select * from trips;
+
+
+/*
+----------------------------------------------------------Member 5 Scenario Anthony--------------------------------------------------------------
+*/
+
+DECLARE
+ErrorCode int;
+Revenue float;
+BEGIN
+-- charge customers for their ride
+dbms_output.put_line('Member 5 calculating and charinging customer payments for trips. The ChargeCustomer procedure makes a call to the calculate payment procedure.');
+ChargeCustomer(return_trip_id('Ronaldo', 'Pat', 'Alexandria', 'VA', 'College Park','MD', DATE '2021-11-20'), ErrorCode);
+ChargeCustomer(return_trip_id('Ronaldo', 'Joe', 'College Park', 'MD', 'Olney','MD', DATE '2021-11-20'), ErrorCode);
+ChargeCustomer(return_trip_id('Ronaldo', 'Pat', 'Olney', 'MD', 'Ellicott City','MD', DATE '2021-11-20'), ErrorCode);
+ChargeCustomer(return_trip_id('Ronaldo', 'Joe', 'Ellicott City', 'MD', 'Baltimore','MD', DATE '2021-11-20'), ErrorCode);
+ChargeCustomer(return_trip_id('Ronaldo', 'Pat', 'Baltimore', 'MD', 'New York','NY', DATE '2021-11-20'), ErrorCode);
+ChargeCustomer(return_trip_id('Mia Ham', 'Joe', 'Baltimore', 'MD', 'Philadelphia','PA', DATE '2021-12-01'), ErrorCode);
+ChargeCustomer(return_trip_id('Messi', 'Kathy', 'Baltimore', 'MD', 'New York','NY', DATE '2021-05-31'), ErrorCode);
+ChargeCustomer(return_trip_id('Ronaldo', 'Kathy', 'New York', 'NY', 'Baltimore','MD', DATE '2021-11-20'), ErrorCode);
+ChargeCustomer(return_trip_id('Rapinoe', 'Pat', 'Baltimore', 'MD', 'College Park','MD', DATE '2021-12-02'), ErrorCode);
+ChargeCustomer(return_trip_id('Rapinoe', 'Pat', 'College Park', 'MD', 'Olney','MD', DATE '2020-12-02'), ErrorCode);
+ChargeCustomer(return_trip_id('Rapinoe', 'Pat', 'Olney', 'MD', 'Arbutus','MD', DATE '2021-12-02'), ErrorCode);
+ChargeCustomer(return_trip_id('Ronaldo', 'Joe', 'Alexandria', 'VA', 'College Park','MD', DATE '2021-12-03'), ErrorCode);
+ChargeCustomer(return_trip_id('Ronaldo', 'Pat', 'College Park', 'MD', 'Baltimore','MD', DATE '2021-12-03'), ErrorCode);
+ChargeCustomer(return_trip_id('Ronaldo', 'Joe', 'Baltimore', 'MD', 'New York','NY', DATE '2021-12-04'), ErrorCode);
+
+-- find RapidRide's total revenue earned
+dbms_output.put_line(u'\000A');
+dbms_output.put_line('Member 5 generating reveneue reports for RapidRide.');
+FindTotalRevenue(Revenue);
+dbms_output.put_line('RapidRides total revenue is: ' || Revenue);
+
+-- report on the revenues earned on trips to a certain destination
+dbms_output.put_line(u'\000A');
+dbms_output.put_line('Generating reports for revenue earn based on trip destination...');
+GenerateRevenueReportDest(ErrorCode);
+
+-- report on the revenues earned on trips from a certain location
+dbms_output.put_line(u'\000A');
+dbms_output.put_line('Generating reports for revenue earn based on trip departure location...');
+GenerateRevenueReportDept(ErrorCode);
+
+-- find all of Ronaldo's payments
+dbms_output.put_line(u'\000A');
+dbms_output.put_line('Generating payment reports for Ronaldo...');
+ViewCustomerPayments('ronaldo@manu.com',ErrorCode);
+
+-- find all of Kathy's payments
+dbms_output.put_line(u'\000A');
+dbms_output.put_line('Generating payment reports for Kathy...');
+ViewOwnerPayments('kathy@abc.com',ErrorCode);
+
+-- mainly for narrowing down the specific anonymous program having an error
+IF ErrorCode<1 THEN
+	dbms_output.put_line('Error in payment operations.');
+END IF;
+END;
+
+/
+SELECT * FROM PAYMENTS;
+SELECT * FROM TRIPS;
+
+
+--These are 2 of Josna's procedures for showing the best and worst customers. This was added to the end so that all the necessary data was entered in the database before it ran.
+DECLARE 
+ErrorCode int;
+BEGIN
+    dbms_output.put_line(u'\000A');
+    dbms_output.put_line('Report for Member 2: Josna Chandramohan');
+	WorstCustomer(ErrorCode);
+	IF ErrorCode<1 THEN
+		dbms_output.put_line('error in report generation for worst customer');
+	END IF;
+	
+    dbms_output.put_line(u'\000A');
+	BestCustomer(ErrorCode);
+	IF ErrorCode<1 THEN
+		dbms_output.put_line('error in report generation for best customer');
+	END IF;
+END;
+
+/
+
+-- Deeksha's is deleting a vehicle at the end of the file after the procedures that use the vehicle have been ran
+BEGIN
+dbms_output.put_line('A vehicle belonging to Pat was removed from to the Vehicles table.');
+delete_Vehicle('pat@yahoo.com');
+END;
+/
+select * from vehicles;
+
+commit;
